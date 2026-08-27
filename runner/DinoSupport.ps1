@@ -1,13 +1,10 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Chrome', 'Edge')]
-    [string]$Browser = 'Chrome',
+    [Parameter(Mandatory)]
+    [string]$ManifestPath,
 
-    [ValidatePattern('^https?://')]
-    [string]$Url,
-
-    [ValidateRange(1, 120)]
-    [int]$CaptureSeconds = 10,
+    [Parameter(Mandatory)]
+    [string]$PublicKeyPath,
 
     [switch]$CaptureScreenshot,
 
@@ -67,7 +64,11 @@ function Send-CdpCommand([System.Net.WebSockets.ClientWebSocket]$Socket, [int]$I
     return $reply
 }
 
-if (-not $Url) { throw 'Url is required.' }
+$task = $null
+$task = Read-DinoSupportTaskManifest -ManifestPath $ManifestPath -PublicKeyPath $PublicKeyPath
+$Browser = @($task.AllowedApps)[0]
+$Url = $task.Url
+$executionDeadline = (Get-Date).AddSeconds($task.MaxRuntimeSeconds)
 
 $browserExe = Find-Browser $Browser
 if (-not $browserExe) { throw "$Browser was not found in a standard installation location." }
@@ -85,6 +86,7 @@ try {
     [void]$executionTrace.Add([ordered]@{ event = 'runnerStarted'; atUtc = (Get-Date).ToUniversalTime().ToString('o') })
     $browserProcess = Start-Process -FilePath $browserExe -ArgumentList @("--remote-debugging-port=$port", "--user-data-dir=$profileDirectory", '--no-first-run', '--no-default-browser-check', 'about:blank') -PassThru
     $deadline = (Get-Date).AddSeconds(15)
+    if ($deadline -gt $executionDeadline) { $deadline = $executionDeadline }
     do {
         try { $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 250; continue }
         $page = $targets | Where-Object { $_.type -eq 'page' } | Select-Object -First 1
@@ -102,7 +104,7 @@ try {
     [void]$executionTrace.Add([ordered]@{ event = 'navigationStarted'; atUtc = (Get-Date).ToUniversalTime().ToString('o'); url = $Url })
     Send-CdpCommand $socket $id 'Page.navigate' @{ url = $Url } $events | Out-Null
 
-    $captureUntil = (Get-Date).AddSeconds($CaptureSeconds)
+    $captureUntil = $executionDeadline
     while ((Get-Date) -lt $captureUntil) {
         $event = Receive-CdpMessage $socket 250
         if ($null -eq $event) { continue }
@@ -125,11 +127,12 @@ try {
     $result = [ordered]@{
         schemaVersion = 2
         status = 'completed'
+        taskId = $task.TaskId
         browser = $Browser
         browserPath = $browserExe
         requestedUrl = $Url
         startedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        captureSeconds = $CaptureSeconds
+        maxRuntimeSeconds = $task.MaxRuntimeSeconds
         consoleErrors = @($consoleErrors)
         failedNetworkRequests = @($failedNetworkRequests)
         browserVersion = [ordered]@{ product = $browserVersion.result.product; revision = $browserVersion.result.revision; userAgent = $browserVersion.result.userAgent }
@@ -140,6 +143,7 @@ try {
     $result = [ordered]@{
         schemaVersion = 2
         status = 'failed'
+        taskId = if ($task) { $task.TaskId } else { $null }
         browser = $Browser
         requestedUrl = $Url
         error = $_.Exception.Message
