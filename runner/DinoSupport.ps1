@@ -6,12 +6,14 @@ param(
     [Parameter(Mandatory)]
     [string]$PublicKeyPath,
 
+    [switch]$CaptureScreenshot,
+
     [string]$OutputPath = (Join-Path (Get-Location) 'dinosupport-result.json')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'TaskManifest.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Evidence.psm1') -Force
 
 function Find-Browser([string]$RequestedBrowser) {
     $candidates = if ($RequestedBrowser -eq 'Chrome') {
@@ -75,10 +77,13 @@ $port = Get-FreeTcpPort
 $profileDirectory = Join-Path ([IO.Path]::GetTempPath()) ("DinoSupport-" + [guid]::NewGuid())
 $events = [System.Collections.ArrayList]::new()
 $consoleErrors = [System.Collections.ArrayList]::new()
+$failedNetworkRequests = [System.Collections.ArrayList]::new()
+$executionTrace = [System.Collections.ArrayList]::new()
 $browserProcess = $null
 $socket = [System.Net.WebSockets.ClientWebSocket]::new()
 
 try {
+    [void]$executionTrace.Add([ordered]@{ event = 'runnerStarted'; atUtc = (Get-Date).ToUniversalTime().ToString('o') })
     $browserProcess = Start-Process -FilePath $browserExe -ArgumentList @("--remote-debugging-port=$port", "--user-data-dir=$profileDirectory", '--no-first-run', '--no-default-browser-check', 'about:blank') -PassThru
     $deadline = (Get-Date).AddSeconds(15)
     if ($deadline -gt $executionDeadline) { $deadline = $executionDeadline }
@@ -94,6 +99,9 @@ try {
     Send-CdpCommand $socket $id 'Runtime.enable' @{} $events | Out-Null; $id++
     Send-CdpCommand $socket $id 'Log.enable' @{} $events | Out-Null; $id++
     Send-CdpCommand $socket $id 'Page.enable' @{} $events | Out-Null; $id++
+    Send-CdpCommand $socket $id 'Network.enable' @{} $events | Out-Null; $id++
+    $browserVersion = Send-CdpCommand $socket $id 'Browser.getVersion' @{} $events; $id++
+    [void]$executionTrace.Add([ordered]@{ event = 'navigationStarted'; atUtc = (Get-Date).ToUniversalTime().ToString('o'); url = $Url })
     Send-CdpCommand $socket $id 'Page.navigate' @{ url = $Url } $events | Out-Null
 
     $captureUntil = $executionDeadline
@@ -104,11 +112,20 @@ try {
             [void]$consoleErrors.Add([ordered]@{ kind = 'exception'; text = $event.params.exceptionDetails.text; url = $event.params.exceptionDetails.url; line = $event.params.exceptionDetails.lineNumber; column = $event.params.exceptionDetails.columnNumber })
         } elseif ($event.method -eq 'Log.entryAdded' -and $event.params.entry.level -in @('error', 'warning')) {
             [void]$consoleErrors.Add([ordered]@{ kind = $event.params.entry.level; text = $event.params.entry.text; url = $event.params.entry.url; line = $event.params.entry.lineNumber })
+        } elseif ($event.method -eq 'Network.loadingFailed') {
+            [void]$failedNetworkRequests.Add([ordered]@{ requestId = $event.params.requestId; errorText = $event.params.errorText; type = $event.params.type; canceled = $event.params.canceled; timestamp = $event.params.timestamp })
         }
     }
 
+    $screenshotBase64 = $null
+    if ($CaptureScreenshot) {
+        $screenshotBase64 = (Send-CdpCommand $socket $id 'Page.captureScreenshot' @{ format = 'png' } $events).result.data
+        $id++
+    }
+    [void]$executionTrace.Add([ordered]@{ event = 'captureCompleted'; atUtc = (Get-Date).ToUniversalTime().ToString('o') })
+
     $result = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         status = 'completed'
         taskId = $task.TaskId
         browser = $Browser
@@ -117,10 +134,14 @@ try {
         startedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         maxRuntimeSeconds = $task.MaxRuntimeSeconds
         consoleErrors = @($consoleErrors)
+        failedNetworkRequests = @($failedNetworkRequests)
+        browserVersion = [ordered]@{ product = $browserVersion.result.product; revision = $browserVersion.result.revision; userAgent = $browserVersion.result.userAgent }
+        executionTrace = @($executionTrace)
+        screenshotPngBase64 = $screenshotBase64
     }
 } catch {
     $result = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         status = 'failed'
         taskId = if ($task) { $task.TaskId } else { $null }
         browser = $Browser
@@ -128,6 +149,8 @@ try {
         error = $_.Exception.Message
         failedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         consoleErrors = @($consoleErrors)
+        failedNetworkRequests = @($failedNetworkRequests)
+        executionTrace = @($executionTrace)
     }
 } finally {
     if ($socket) { $socket.Dispose() }
@@ -135,5 +158,6 @@ try {
     if (Test-Path -LiteralPath $profileDirectory) { Remove-Item -LiteralPath $profileDirectory -Recurse -Force }
 }
 
-$result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+$result = Protect-DinoSupportEvidence $result
+$result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 if ($result.status -ne 'completed') { exit 1 }
