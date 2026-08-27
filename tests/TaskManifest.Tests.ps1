@@ -12,7 +12,7 @@ Describe 'Read-DinoSupportTaskManifest' {
             if ($Tamper) { $payload[0] = $payload[0] -bxor 1 }
             @{ schemaVersion = 1; payload = [Convert]::ToBase64String($payload); signature = @{ algorithm = 'RS256'; value = [Convert]::ToBase64String($signature) } } | ConvertTo-Json -Compress -Depth 5
         }
-        $validTask = @{ taskId = '4e0f3182-8aa1-43b7-a980-6e4e1f2d0fe5'; allowedApps = @('Chrome'); allowedDomains = @('example.com'); actions = @(@{ type = 'navigate'; url = 'https://example.com/help' }); requestedEvidence = @('consoleErrors'); expiresAtUtc = '2030-01-01T00:00:00Z'; maxRuntimeSeconds = 10; uploadDestinationId = 'ticket-123' }
+        $validTask = @{ taskId = '4e0f3182-8aa1-43b7-a980-6e4e1f2d0fe5'; requester = 'DinoSupport Support'; allowedApps = @('Chrome'); allowedDomains = @('example.com'); actions = @(@{ type = 'navigate'; url = 'https://example.com/help' }); requestedEvidence = @('consoleErrors'); expiresAtUtc = '2030-01-01T00:00:00Z'; maxRuntimeSeconds = 10; uploadDestinationId = 'ticket-123' }
     }
     AfterAll { $rsa.Dispose() }
     It 'accepts a valid signed in-scope manifest' {
@@ -45,5 +45,10 @@ Describe 'Read-DinoSupportTaskManifest' {
             $path = Join-Path $TestDrive ([guid]::NewGuid().ToString() + '.json'); New-Manifest $task | Set-Content $path
             { Read-DinoSupportTaskManifest $path $keyPath ([datetime]'2029-01-01T00:00:00Z') } | Should -Throw
         }
+    }
+    It 'rejects a manifest without a requester identity' {
+        $task = @{} + $validTask; $task.Remove('requester')
+        $path = Join-Path $TestDrive 'missing-requester.json'; New-Manifest $task | Set-Content $path
+        { Read-DinoSupportTaskManifest $path $keyPath ([datetime]'2029-01-01T00:00:00Z') } | Should -Throw '*missing or unsupported fields*'
     }
 }

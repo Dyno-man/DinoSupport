@@ -14,6 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Evidence.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Consent.psm1') -Force
 
 function Find-Browser([string]$RequestedBrowser) {
     $candidates = if ($RequestedBrowser -eq 'Chrome') {
@@ -45,7 +46,14 @@ function Receive-CdpMessage([System.Net.WebSockets.ClientWebSocket]$Socket, [int
     $buffer = New-Object byte[] 65536
     $segment = [ArraySegment[byte]]::new($buffer)
     $task = $Socket.ReceiveAsync($segment, [Threading.CancellationToken]::None)
-    if (-not $task.Wait($TimeoutMs)) { return $null }
+    $remainingMs = $TimeoutMs
+    while ($remainingMs -gt 0) {
+        $waitMs = [Math]::Min($remainingMs, 100)
+        if ($task.Wait($waitMs)) { break }
+        if ($script:StopControl) { Update-DinoSupportStopControl $script:StopControl }
+        $remainingMs -= $waitMs
+    }
+    if (-not $task.IsCompleted) { return $null }
     $result = $task.Result
     if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) { throw 'Browser closed the DevTools connection.' }
     return ([Text.Encoding]::UTF8.GetString($buffer, 0, $result.Count) | ConvertFrom-Json)
@@ -65,7 +73,13 @@ function Send-CdpCommand([System.Net.WebSockets.ClientWebSocket]$Socket, [int]$I
 }
 
 $task = $null
+$script:StopControl = $null
 $task = Read-DinoSupportTaskManifest -ManifestPath $ManifestPath -PublicKeyPath $PublicKeyPath
+if (-not (Request-DinoSupportConsent $task)) {
+    $result = [ordered]@{ schemaVersion = 2; status = 'cancelled'; taskId = $task.TaskId; cancelledAtUtc = (Get-Date).ToUniversalTime().ToString('o') }
+    $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    exit 0
+}
 $Browser = @($task.AllowedApps)[0]
 $Url = $task.Url
 $executionDeadline = (Get-Date).AddSeconds($task.MaxRuntimeSeconds)
@@ -83,11 +97,13 @@ $browserProcess = $null
 $socket = [System.Net.WebSockets.ClientWebSocket]::new()
 
 try {
+    $script:StopControl = New-DinoSupportStopControl
     [void]$executionTrace.Add([ordered]@{ event = 'runnerStarted'; atUtc = (Get-Date).ToUniversalTime().ToString('o') })
     $browserProcess = Start-Process -FilePath $browserExe -ArgumentList @("--remote-debugging-port=$port", "--user-data-dir=$profileDirectory", '--no-first-run', '--no-default-browser-check', 'about:blank') -PassThru
     $deadline = (Get-Date).AddSeconds(15)
     if ($deadline -gt $executionDeadline) { $deadline = $executionDeadline }
     do {
+        Update-DinoSupportStopControl $script:StopControl
         try { $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 250; continue }
         $page = $targets | Where-Object { $_.type -eq 'page' } | Select-Object -First 1
         if ($page) { break }
@@ -106,6 +122,7 @@ try {
 
     $captureUntil = $executionDeadline
     while ((Get-Date) -lt $captureUntil) {
+        Update-DinoSupportStopControl $script:StopControl
         $event = Receive-CdpMessage $socket 250
         if ($null -eq $event) { continue }
         if ($event.method -eq 'Runtime.exceptionThrown') {
@@ -140,9 +157,10 @@ try {
         screenshotPngBase64 = $screenshotBase64
     }
 } catch {
+    $status = if ($_.Exception.Message -eq 'DinoSupport execution was stopped by the user.') { 'stopped' } else { 'failed' }
     $result = [ordered]@{
         schemaVersion = 2
-        status = 'failed'
+        status = $status
         taskId = if ($task) { $task.TaskId } else { $null }
         browser = $Browser
         requestedUrl = $Url
@@ -153,6 +171,7 @@ try {
         executionTrace = @($executionTrace)
     }
 } finally {
+    Close-DinoSupportStopControl $script:StopControl
     if ($socket) { $socket.Dispose() }
     if ($browserProcess -and -not $browserProcess.HasExited) { Stop-Process -Id $browserProcess.Id -Force }
     if (Test-Path -LiteralPath $profileDirectory) { Remove-Item -LiteralPath $profileDirectory -Recurse -Force }

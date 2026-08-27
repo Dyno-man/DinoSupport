@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 
-$script:ManifestFields = @('taskId', 'allowedApps', 'allowedDomains', 'actions', 'requestedEvidence', 'expiresAtUtc', 'maxRuntimeSeconds', 'uploadDestinationId')
+$script:ManifestFields = @('taskId', 'requester', 'allowedApps', 'allowedDomains', 'actions', 'requestedEvidence', 'expiresAtUtc', 'maxRuntimeSeconds', 'uploadDestinationId')
 
 function Get-ObjectPropertyNames([object]$Object) {
     return @($Object.PSObject.Properties | ForEach-Object { $_.Name })
@@ -63,6 +63,7 @@ function Read-DinoSupportTaskManifest {
 
     $taskId = [guid]::Empty
     if (-not [guid]::TryParse([string]$task.taskId, [ref]$taskId)) { throw 'taskId must be a UUID.' }
+    if ($task.requester -isnot [string] -or [string]::IsNullOrWhiteSpace($task.requester) -or $task.requester.Length -gt 128) { throw 'requester is invalid.' }
     $apps = Assert-StringArray $task.allowedApps 'allowedApps'
     if (@($apps | Where-Object { $_ -notin @('Chrome', 'Edge') }).Count) { throw 'The task requests an unsupported application.' }
     $domains = Assert-StringArray $task.allowedDomains 'allowedDomains'
@@ -81,7 +82,7 @@ function Read-DinoSupportTaskManifest {
     if (-not [int]::TryParse([string]$task.maxRuntimeSeconds, [ref]$maxRuntime) -or $maxRuntime -lt 1 -or $maxRuntime -gt 120) { throw 'maxRuntimeSeconds must be between 1 and 120.' }
     if ($task.uploadDestinationId -isnot [string] -or [string]::IsNullOrWhiteSpace($task.uploadDestinationId) -or $task.uploadDestinationId.Length -gt 128) { throw 'uploadDestinationId is invalid.' }
 
-    return [pscustomobject]@{ TaskId = $taskId.ToString(); AllowedApps = $apps; AllowedDomains = $domains; Url = $uri.AbsoluteUri; RequestedEvidence = $evidence; ExpiresAtUtc = $expiresAtUtc; MaxRuntimeSeconds = $maxRuntime; UploadDestinationId = $task.uploadDestinationId }
+    return [pscustomobject]@{ TaskId = $taskId.ToString(); Requester = $task.requester; AllowedApps = $apps; AllowedDomains = $domains; Url = $uri.AbsoluteUri; RequestedEvidence = $evidence; ExpiresAtUtc = $expiresAtUtc; MaxRuntimeSeconds = $maxRuntime; UploadDestinationId = $task.uploadDestinationId }
 }
 
 Export-ModuleMember -Function Read-DinoSupportTaskManifest
