@@ -18,7 +18,7 @@ The first target workflow is deliberately narrow:
 
 ## Local proof of concept
 
-The current proof of concept implements the deterministic browser portion of that workflow: it opens Chrome or Edge with a temporary profile, navigates to one supplied URL, collects console exceptions and browser log errors, then writes a local JSON result. See [`runner/README.md`](runner/README.md) for the Windows command and constraints.
+The current proof of concept implements the deterministic browser portion of that workflow: it opens Chrome or Edge with a temporary profile, navigates to one supplied URL, collects redacted console/network evidence, browser version data, and an execution trace, then writes a local JSON result. See [`runner/README.md`](runner/README.md) for the Windows command and constraints.
 
 ## Architecture
 
