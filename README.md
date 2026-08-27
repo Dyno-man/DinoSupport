@@ -16,6 +16,10 @@ The first target workflow is deliberately narrow:
 
 > Open Chrome or Edge → reproduce a web issue → capture console/network errors → return evidence to support.
 
+## Local proof of concept
+
+The current proof of concept implements the deterministic browser portion of that workflow: it opens Chrome or Edge with a temporary profile, navigates to one supplied URL, collects console exceptions and browser log errors, then writes a local JSON result. See [`runner/README.md`](runner/README.md) for the Windows command and constraints.
+
 ## Architecture
 
 ```text
