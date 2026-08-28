@@ -54,6 +54,8 @@ The first control-plane implementation is a small in-memory PowerShell API that 
 
 Do not ship a local LLM in the first version. Prove the endpoint workflow first, then benchmark whether a small local model adds enough value to justify its size and risk.
 
+The Phase 8 evaluation concludes that the current signed, deterministic task contract leaves a local model no authorized decision that could materially improve task completion. See [`docs/local-model-benchmark.md`](docs/local-model-benchmark.md) for the decision and the admission gate for any future experiment.
+
 ## Safety model
 
 DinoSupport is intended for authorized troubleshooting only.
