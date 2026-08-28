@@ -65,24 +65,33 @@ function Read-DinoSupportTaskManifest {
     if (-not [guid]::TryParse([string]$task.taskId, [ref]$taskId)) { throw 'taskId must be a UUID.' }
     if ($task.requester -isnot [string] -or [string]::IsNullOrWhiteSpace($task.requester) -or $task.requester.Length -gt 128) { throw 'requester is invalid.' }
     $apps = Assert-StringArray $task.allowedApps 'allowedApps'
-    if (@($apps | Where-Object { $_ -notin @('Chrome', 'Edge') }).Count) { throw 'The task requests an unsupported application.' }
+    if (@($apps | Where-Object { $_ -notin @('Chrome', 'Edge', 'Notepad') }).Count) { throw 'The task requests an unsupported application.' }
     $domains = Assert-StringArray $task.allowedDomains 'allowedDomains'
     if (@($domains | Where-Object { $_ -notmatch '^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$' }).Count) { throw 'allowedDomains contains an invalid domain.' }
     $evidence = Assert-StringArray $task.requestedEvidence 'requestedEvidence'
-    if (@($evidence | Where-Object { $_ -notin @('consoleErrors') }).Count) { throw 'The task requests unsupported evidence.' }
-    if ($task.actions -is [string] -or @($task.actions).Count -ne 1) { throw 'This runner requires exactly one ordered navigate action.' }
+    if (@($evidence | Where-Object { $_ -notin @('consoleErrors', 'uiAutomationTrace') }).Count) { throw 'The task requests unsupported evidence.' }
+    if ($task.actions -is [string] -or @($task.actions).Count -ne 1) { throw 'This runner requires exactly one predefined action.' }
     $action = @($task.actions)[0]
-    Assert-ExactFields $action @('type', 'url') 'Task action'
     $uri = $null
-    if ($action.type -ne 'navigate' -or -not [uri]::TryCreate([string]$action.url, [UriKind]::Absolute, [ref]$uri)) { throw 'The task action is malformed.' }
-    if (-not (Test-AllowedDomain $uri $domains)) { throw 'The task action URL is outside allowedDomains.' }
+    $executorKind = $null
+    if ($action.type -eq 'navigate') {
+        Assert-ExactFields $action @('type', 'url') 'Task action'
+        if (@($apps | Where-Object { $_ -notin @('Chrome', 'Edge') }).Count -or -not [uri]::TryCreate([string]$action.url, [UriKind]::Absolute, [ref]$uri)) { throw 'The task action is malformed.' }
+        if (-not (Test-AllowedDomain $uri $domains)) { throw 'The task action URL is outside allowedDomains.' }
+        $executorKind = 'browser'
+    } elseif ($action.type -eq 'inspectNotepadWindow') {
+        Assert-ExactFields $action @('type') 'Task action'
+        if ($apps.Count -ne 1 -or $apps[0] -ne 'Notepad' -or $evidence.Count -ne 1 -or $evidence[0] -ne 'uiAutomationTrace') { throw 'The native task is outside the supported Notepad recipe.' }
+        if ($domains.Count -ne 1 -or $domains[0] -ne 'local.native') { throw 'The native task must use the local.native scope.' }
+        $executorKind = 'native'
+    } else { throw 'The task action is unsupported.' }
     try { $expiresAtUtc = [datetime]::Parse([string]$task.expiresAtUtc).ToUniversalTime() } catch { throw 'expiresAtUtc is invalid.' }
     if ($expiresAtUtc -le $NowUtc.ToUniversalTime()) { throw 'The task manifest has expired.' }
     $maxRuntime = 0
     if (-not [int]::TryParse([string]$task.maxRuntimeSeconds, [ref]$maxRuntime) -or $maxRuntime -lt 1 -or $maxRuntime -gt 120) { throw 'maxRuntimeSeconds must be between 1 and 120.' }
     if ($task.uploadDestinationId -isnot [string] -or [string]::IsNullOrWhiteSpace($task.uploadDestinationId) -or $task.uploadDestinationId.Length -gt 128) { throw 'uploadDestinationId is invalid.' }
 
-    return [pscustomobject]@{ TaskId = $taskId.ToString(); Requester = $task.requester; AllowedApps = $apps; AllowedDomains = $domains; Url = $uri.AbsoluteUri; RequestedEvidence = $evidence; ExpiresAtUtc = $expiresAtUtc; MaxRuntimeSeconds = $maxRuntime; UploadDestinationId = $task.uploadDestinationId }
+    return [pscustomobject]@{ TaskId = $taskId.ToString(); Requester = $task.requester; AllowedApps = $apps; AllowedDomains = $domains; Url = if ($uri) { $uri.AbsoluteUri } else { $null }; RequestedEvidence = $evidence; ExpiresAtUtc = $expiresAtUtc; MaxRuntimeSeconds = $maxRuntime; UploadDestinationId = $task.uploadDestinationId; ExecutorKind = $executorKind; ActionType = $action.type }
 }
 
 Export-ModuleMember -Function Read-DinoSupportTaskManifest

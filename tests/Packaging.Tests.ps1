@@ -3,7 +3,7 @@ $script = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
 
 Describe 'DinoSupport temporary package' {
     It 'embeds only the approved runner inputs' {
-        $script | Should -Match "\$runnerFiles = @\('DinoSupport.ps1', 'Consent.psm1', 'Evidence.psm1', 'TaskManifest.psm1'\)"
+        $script | Should -Match "\$runnerFiles = @\('DinoSupport.ps1', 'Consent.psm1', 'Evidence.psm1', 'NativeAutomation.psm1', 'TaskManifest.psm1'\)"
         $script | Should -Match "'task.json'"
         $script | Should -Match "'support-public-key.xml'"
     }

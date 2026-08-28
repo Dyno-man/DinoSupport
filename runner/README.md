@@ -1,4 +1,4 @@
-# DinoSupport browser proof of concept
+# DinoSupport constrained Windows runner
 
 This Windows-only script executes only a signed task manifest for a fixed, visible browser recipe:
 
@@ -8,6 +8,10 @@ This Windows-only script executes only a signed task manifest for a fixed, visib
 4. Write a structured JSON result locally, terminate the launched browser, and delete the temporary profile.
 
 It has no cloud service, local model, persistence, startup registration, credential access, arbitrary shell execution, or remote-control capability.
+
+## Constrained native Windows automation
+
+The only native recipe is `inspectNotepadWindow`: it visibly launches the Windows-built-in Notepad app, waits for the window through Windows UI Automation, records its window name and control type, and then terminates only the process it launched. It does not type text, read document contents, enumerate other windows, invoke a shell, or automate arbitrary applications. A valid native manifest must allow only `Notepad`, use the `local.native` scope, request `uiAutomationTrace`, and contain exactly that action. Consent, the maximum duration, visible stop button, evidence redaction, and result trace are shared with browser runs.
 
 ## Prerequisites
 
@@ -38,7 +42,7 @@ The resulting `.exe` embeds only the existing runner files, that manifest, and t
 
 The envelope is JSON with a base64-encoded UTF-8 JSON payload and an `RS256` signature over the decoded payload bytes. The public key is an RSA public-key XML file (`RSAKeyValue` containing `Modulus` and `Exponent`), which is supported by Windows PowerShell 5.1.
 
-The signed payload has exactly these fields: `taskId` (UUID), `requester` (the support requester shown for approval), `allowedApps` (`Chrome` and/or `Edge`), `allowedDomains` (exact hostnames), `actions` (exactly one `navigate` action with an `http`/`https` URL), `requestedEvidence` (currently only `consoleErrors`), `expiresAtUtc`, `maxRuntimeSeconds` (1–120), and `uploadDestinationId`. Unknown fields are rejected.
+The signed payload has exactly these fields: `taskId` (UUID), `requester` (the support requester shown for approval), `allowedApps`, `allowedDomains`, `actions`, `requestedEvidence`, `expiresAtUtc`, `maxRuntimeSeconds` (1–120), and `uploadDestinationId`. Unknown fields are rejected. Browser manifests allow only Chrome/Edge, exact allowed hostnames, one `navigate` action with an `http`/`https` URL, and `consoleErrors`. Native manifests allow only the fixed Notepad recipe described above.
 
 After the browser is launched, the process exits non-zero on failure and writes a result JSON document with `status`, timestamps, the requested URL, and any errors captured before the failure.
 
@@ -66,4 +70,6 @@ With [Pester](https://pester.dev/) installed, run:
 ```powershell
 Invoke-Pester ./tests/Evidence.Tests.ps1
 Invoke-Pester ./tests/Packaging.Tests.ps1
+Invoke-Pester ./tests/TaskManifest.Tests.ps1
+Invoke-Pester ./tests/NativeTaskManifest.Tests.ps1
 ```
