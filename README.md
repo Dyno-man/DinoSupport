@@ -20,6 +20,8 @@ The first target workflow is deliberately narrow:
 
 The current proof of concept implements the deterministic browser portion of that workflow: it opens Chrome or Edge with a temporary profile, navigates to one supplied URL, collects redacted console/network evidence, browser version data, and an execution trace, then writes a local JSON result. See [`runner/README.md`](runner/README.md) for the Windows command and constraints.
 
+For one-time distribution on Windows, [`packaging/Build-DinoSupportPackage.ps1`](packaging/Build-DinoSupportPackage.ps1) produces a task-bound `.exe` that embeds the signed manifest, public key, and runner files. It extracts only to a fresh temporary directory, preserves the existing consent and stop controls, removes its temporary files, and leaves no service or active agent behind.
+
 ## Architecture
 
 ```text
