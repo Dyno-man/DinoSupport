@@ -117,7 +117,7 @@ function New-DinoSupportPackage {
 
     if ($env:OS -ne 'Windows_NT') { throw 'DinoSupport packages can only be built on Windows.' }
     $runnerDirectory = Join-Path $PSScriptRoot '..' 'runner'
-    $runnerFiles = @('DinoSupport.ps1', 'Consent.psm1', 'Evidence.psm1', 'TaskManifest.psm1')
+    $runnerFiles = @('DinoSupport.ps1', 'Consent.psm1', 'Evidence.psm1', 'NativeAutomation.psm1', 'TaskManifest.psm1')
     foreach ($file in $runnerFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $runnerDirectory $file) -PathType Leaf)) { throw "Required runner file is missing: $file" }
     }

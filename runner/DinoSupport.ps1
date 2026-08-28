@@ -15,6 +15,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Evidence.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Consent.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'NativeAutomation.psm1') -Force
 
 function Find-Browser([string]$RequestedBrowser) {
     $candidates = if ($RequestedBrowser -eq 'Chrome') {
@@ -83,6 +84,23 @@ if (-not (Request-DinoSupportConsent $task)) {
 $Browser = @($task.AllowedApps)[0]
 $Url = $task.Url
 $executionDeadline = (Get-Date).AddSeconds($task.MaxRuntimeSeconds)
+
+if ($task.ExecutorKind -eq 'native') {
+    $script:StopControl = $null
+    $executionTrace = [System.Collections.ArrayList]::new()
+    try {
+        $script:StopControl = New-DinoSupportStopControl
+        $nativeResult = Start-DinoSupportNativeRecipe -Task $task -StopControl $script:StopControl -ExecutionDeadline $executionDeadline
+        $result = [ordered]@{ schemaVersion = 2; status = 'completed'; taskId = $task.TaskId; application = $nativeResult.Application; nativeWindow = [ordered]@{ name = $nativeResult.WindowName; controlType = $nativeResult.ControlType }; maxRuntimeSeconds = $task.MaxRuntimeSeconds; executionTrace = @($nativeResult.ExecutionTrace) }
+    } catch {
+        $status = if ($_.Exception.Message -eq 'DinoSupport execution was stopped by the user.') { 'stopped' } else { 'failed' }
+        $result = [ordered]@{ schemaVersion = 2; status = $status; taskId = $task.TaskId; application = 'Notepad'; error = $_.Exception.Message; failedAtUtc = (Get-Date).ToUniversalTime().ToString('o'); executionTrace = @($executionTrace) }
+    } finally { Close-DinoSupportStopControl $script:StopControl }
+    $result = Protect-DinoSupportEvidence $result
+    $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    if ($result.status -ne 'completed') { exit 1 }
+    exit 0
+}
 
 $browserExe = Find-Browser $Browser
 if (-not $browserExe) { throw "$Browser was not found in a standard installation location." }
