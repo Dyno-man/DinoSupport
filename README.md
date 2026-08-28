@@ -46,7 +46,7 @@ Cleanup + exit
 
 ### Minimal cloud control plane
 
-The first control-plane implementation is a small in-memory PowerShell API that issues a signed one-time task, allows one authenticated fetch, accepts one bounded structured result, and produces an RS256-signed audit receipt. See [`control-plane/README.md`](control-plane/README.md). It deliberately has no listener, durable storage, authentication provider, or endpoint upload wiring yet.
+The first control-plane implementation is a small in-memory PowerShell API that issues a signed one-time task, allows one authenticated fetch, accepts one bounded structured result, and produces an RS256-signed audit receipt. Its GitHub Issues adapter binds a task to an open support issue and posts a receipt summary when the result returns. See [`control-plane/README.md`](control-plane/README.md). It deliberately has no listener, durable storage, authentication provider, or endpoint upload wiring yet.
 
 ### MVP principle
 

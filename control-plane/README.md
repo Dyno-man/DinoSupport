@@ -6,8 +6,15 @@ The support side calls `New-DinoSupportCloudTask`, then gives the endpoint runne
 
 The module is an embeddable API surface, not a network listener. Deploying an authenticated HTTPS transport, durable encrypted storage, caller identity, rate limiting, retention/deletion, and runner upload wiring are deliberately deferred.
 
+## GitHub Issues support-desk integration
+
+`GitHubSupportDesk.psm1` provides the first support-desk adapter. An operator supplies a GitHub fine-grained token with **Issues: read and write** access to one repository, creates a task from one open GitHub Issue, gives the returned one-time task bundle to the endpoint through the approved task-delivery channel, and submits the runner result through `Submit-DinoSupportGitHubIssueResult`.
+
+The adapter verifies that the ticket is an open Issue (not a pull request), binds the task to that ticket in the in-memory control plane, and posts only status, receipt ID, and the result hash back to the Issue. It never posts the evidence payload or stores the GitHub token. The control-plane process must remain available until the result is submitted; durable delivery, authentication, and retry/retention policies remain deliberately out of scope.
+
 Run the tests on Windows with Pester:
 
 ```powershell
 Invoke-Pester ./tests/ControlPlane.Tests.ps1
+Invoke-Pester ./tests/GitHubSupportDesk.Tests.ps1
 ```
