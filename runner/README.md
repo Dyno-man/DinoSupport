@@ -24,6 +24,16 @@ From PowerShell, run:
 
 The runner never accepts a browser, URL, or duration as command-line task input. Those values must be in a signed manifest. It rejects unsigned, expired, malformed, unsupported, or out-of-scope tasks before launching a browser. Before launching, it shows the requester, allowed applications/sites, requested evidence, and maximum duration; the user must select **Approve**. Selecting **Cancel** writes a `cancelled` result and starts nothing. During execution, an always-visible **Stop immediately** button stops capture, terminates the launched browser, and deletes the temporary profile.
 
+## One-task Windows executable
+
+On Windows, support can create a single, task-bound executable from a signed manifest and its matching public key:
+
+```powershell
+./packaging/Build-DinoSupportPackage.ps1 -ManifestPath ./task.json -PublicKeyPath ./support-public-key.xml -OutputPath ./DinoSupport-task.exe
+```
+
+The resulting `.exe` embeds only the existing runner files, that manifest, and that public key. It accepts no task details as command-line input. When the user starts it, it extracts those files to a new temporary directory, opens the existing consent UI, runs the signed task, writes `DinoSupport-task.result.json` beside the executable, and removes the temporary directory before it exits. If Windows prevents temporary cleanup, it shows the exact directory to delete. The executable does not install a service, register startup, elevate privileges, or remain active after the task ends. The user should delete the downloaded executable and its result after support has received the result; the launcher deliberately does not attempt self-deletion because Windows may keep a running executable locked.
+
 ## Manifest format
 
 The envelope is JSON with a base64-encoded UTF-8 JSON payload and an `RS256` signature over the decoded payload bytes. The public key is an RSA public-key XML file (`RSAKeyValue` containing `Modulus` and `Exponent`), which is supported by Windows PowerShell 5.1.
@@ -55,4 +65,5 @@ With [Pester](https://pester.dev/) installed, run:
 
 ```powershell
 Invoke-Pester ./tests/Evidence.Tests.ps1
+Invoke-Pester ./tests/Packaging.Tests.ps1
 ```
